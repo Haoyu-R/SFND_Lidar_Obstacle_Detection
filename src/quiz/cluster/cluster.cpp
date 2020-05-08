@@ -75,16 +75,173 @@ void render2DTree(Node* node, pcl::visualization::PCLVisualizer::Ptr& viewer, Bo
 
 }
 
+void proximity(const std::vector<std::vector<float>>& points, const int & index, std::vector<bool>& flags, KdTree * tree, std::vector<int> &cluster, float distanceTol) {
+
+    flags[index] = true;
+    cluster.push_back(index);
+
+    std::vector<int> neighbour = tree->search(points[index], distanceTol);
+    for (int i : neighbour) {
+        if (!flags[i])
+            proximity(points, i, flags, tree, cluster, distanceTol);
+    }
+
+}
+
 std::vector<std::vector<int>> euclideanCluster(const std::vector<std::vector<float>>& points, KdTree* tree, float distanceTol)
 {
 
 	// TODO: Fill out this function to return list of indices for each cluster
 
 	std::vector<std::vector<int>> clusters;
- 
+    
+    int point_sum = points.size();
+
+    std::vector<bool> flags(point_sum, false);
+
+    for (int index = 0; index < point_sum; index++) {
+        if (!flags[index]) {
+
+            std::vector<int> cluster;
+            proximity(points, index, flags, tree, cluster, distanceTol);
+            clusters.push_back(cluster);           
+        }
+    }
 	return clusters;
+}
+
+template<typename PointT>
+std::pair<typename pcl::PointCloud<PointT>::Ptr, typename pcl::PointCloud<PointT>::Ptr> ProcessPointClouds<PointT>::SegmentPlane(typename pcl::PointCloud<PointT>::Ptr cloud, int maxIterations, float distanceThreshold)
+{
+    // Time segmentation process
+    auto startTime = std::chrono::steady_clock::now();
+
+    //// TODO:: Fill in this function to find inliers for the cloud.
+
+    //// Instantiat 2 pointers
+    //pcl::PointIndices::Ptr inliers(new pcl::PointIndices()); // inlier point indice
+    //pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients()); //coefficients of modell
+    //
+    //pcl::SACSegmentation<PointT> seg;
+
+    //// optional
+    //seg.setOptimizeCoefficients(true);
+
+    ////set segmentation parameter
+    //seg.setModelType(pcl::SACMODEL_PLANE);
+    //seg.setMethodType(pcl::SAC_RANSAC);
+    //seg.setMaxIterations(maxIterations);
+    //seg.setDistanceThreshold(distanceThreshold);
+
+    //// input data and 
+    //seg.setInputCloud(cloud);
+    //seg.segment(*inliers, *coefficients);
+
+
+    // If no model found fit the data
+    /*if (inliers->indices.size() == 0) {
+        std::cout << "Cannot find a plane" << std::endl;
+    }*/
+
+    std::unordered_set<int> inliersResult;
+    srand(time(NULL));
+
+    std::unordered_set<int> inliersTemp;
+    int max_num = cloud->points.size();
+
+    PointT point1;
+    PointT point2;
+    PointT point3;
+
+    double i = 0, j = 0, k = 0, D = 0;
+    double dist = 0;
+    double denominator = 1;
+
+    while (maxIterations--) {
+
+        // randomly pick indices of three points
+        while (inliersTemp.size() < 3) {
+            inliersTemp.insert(rand() % max_num);
+        }
+
+        auto iterator = inliersTemp.begin();
+        point1 = cloud->points[(*iterator++)];
+        point2 = cloud->points[(*iterator++)];
+        point3 = cloud->points[(*iterator)];
+
+
+        i = (point2.y - point1.y) * (point3.z - point1.z) - (point2.z - point1.z) * (point3.y - point1.y);
+        j = (point2.z - point1.z) * (point3.x - point1.x) - (point2.x - point1.x) * (point3.z - point1.z);
+        k = (point2.x - point1.x) * (point3.y - point1.y) - (point2.y - point1.y) * (point3.x - point1.x);
+        D = -(i * point1.x + j * point1.y + k * point1.z);
+
+        denominator = sqrt(i * i + j * j + k * k);
+
+        for (int index = 0; index < max_num; index++) {
+            if (inliersTemp.count(index))
+                continue;
+            PointT point = cloud->points[index];
+            dist = abs(i * point.x + j * point.y + k * point.z + D) / denominator;
+            if (dist < distanceThreshold)
+                inliersTemp.insert(index);
+        }
+
+        if (inliersTemp.size() > inliersResult.size()) {
+            inliersResult = inliersTemp;
+        }
+
+    }
+
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
+    for (auto index : inliersResult) {
+        inliers->indices.push_back(index);
+    }
+
+    auto endTime = std::chrono::steady_clock::now();
+    auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    std::cout << "plane segmentation took " << elapsedTime.count() << " milliseconds" << std::endl;
+
+    std::pair<typename pcl::PointCloud<PointT>::Ptr, typename pcl::PointCloud<PointT>::Ptr> segResult = SeparateClouds(inliers, cloud);
+    return segResult;
+}
+
+
+void proximity(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, int index, std::vector<bool>& flags, typename KdTree<pcl::PointXYZI>* tree, typename pcl::PointCloud<pcl::PointXYZI>::Ptr& cluster, float distanceTol) {
+
+    flags[index] = true;
+    cluster->push_back(cloud->points[index]);
+
+    std::vector<int> neighbour = tree->search(cloud->points[index], distanceTol);
+
+    for (int i : neighbour) {
+        if (!flags[i])
+            proximity(cloud, i, flags, tree, cluster, distanceTol);
+    }
 
 }
+
+std::vector<typename pcl::PointCloud<pcl::PointXYZI>::Ptr> euclideanCluster(const typename pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, typename KdTree<pcl::PointXYZI>* tree, float distanceTol, int minSize)
+{
+
+    // TODO: Fill out this function to return list of indices for each cluster
+
+    std::vector<typename pcl::PointCloud<pcl::PointXYZI>::Ptr> clusters;
+
+    int point_sum = cloud->points.size();
+
+    std::vector<bool> flags(point_sum, false);
+
+    for (int index = 0; index < point_sum; index++) {
+        if (!flags[index]) {
+            pcl::PointCloud<pcl::PointXYZI>::Ptr cluster;
+            proximity(cloud, index, flags, tree, cluster, distanceTol);
+            if (cluster->points.size() > minSize)
+                clusters.push_back(cluster);
+        }
+    }
+    return clusters;
+}
+
 
 int main ()
 {
